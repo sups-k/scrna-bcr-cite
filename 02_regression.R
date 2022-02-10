@@ -14,7 +14,7 @@ options(future.globals.maxSize = 100000 * 1024^2)
 
 # Read Seurat object
 cat("Reading RDS file ...\n")
-DATA <- readRDS(file = "results/output_rds/split_sauron_regressed.rds")
+DATA <- readRDS(file = "results/output_rds/sauron_filtered.rds")
 
 # Split Seurat object into 8 objects - for each sample
 cat("Splitting Seurat object into 8 objects for each sample ...\n")
