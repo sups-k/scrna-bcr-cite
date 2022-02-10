@@ -29,7 +29,7 @@ for (i in 1:length(split_seurat)) {
 }
 
 cat("Saving regressed object ...\n")
-saveRDS(split_seurat, "results/output_rds/split_seurat_reg_mito_patient.rds")
+saveRDS(split_seurat, "results/output_rds/split_sauron_regressed.rds")
 
 cat("Clearing everything ...\n")
 rm(split_seurat)
