@@ -1,0 +1,452 @@
+---
+title: "scRNA-seq Tutorial 2"
+author: "Suparna"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 12, message = FALSE)
+```
+
+# Single Cell RNA-seq Workshop - Day 1: Normalization and Integration
+
+Only for Seurat analysis.
+
+## Theory behind clustering
+
+The goal of our clustering analysis is to keep the major sources of variation in our dataset that should define our cell types, while restricting the variation due to uninteresting sources of variation (sequencing depth, cell cycle differences, mitochondrial expression, batch effects, etc.). Then, to determine the cell types present, we will perform a clustering analysis using the most variable genes to define the major sources of variation in the dataset.
+
+To identify clusters, the following steps will be performed:
+
+1. **Explore sources of unwanted variation**
+  + The first step in the workflow is to idenitfy sources of unwanted variability (covariates) that we have to regress out. Biological effects in scRNA-seq data:
+  (i) The effect of cell cycle on the transcriptome.
+  (ii) Mitochondrial gene expression, which is interpreted as an indication of cell stress.
+
+2. **Normalization and regressing out sources of unwanted variation**
+  + Seurat recently introduced a new method called `sctransform` which performs multiple processing steps on scRNA-seq data.
+  + Normalization is required to scale the raw count data to obtain correct relative gene expression abundances between cells. The `sctransform` function implements an advanced normalization and variance stabilization of the data.
+  + The `sctransform` function also regresses out sources of unwanted variation in our data.
+  + In this step, we specify the covariates.
+
+3. **Integration**
+  + Often with single cell RNA-seq we are working with multiple samples which correspond to different sample groups, multiple experiments or different modalities.
+  + If we want to ultimately compare celltype expression between groups it is recommended to integrate the data.
+  + Integration is a powerful method that uses these shared sources of greatest variation to identify shared sub-populations across conditions or datasets [Stuart and Butler et al. (2018)].
+  + There are several steps involved in performing intergration in Seurat.
+  + Once complete, we use visualization methods to ensure a good integration before we proceed to cluster cells.
+
+>NOTE: Integration is optional. We recommend going through the workflow without integration to decide whether or not it is necessary for your data.
+
+4. **Clustering cells**
+  + Clusters of cells are obtained by grouping cells based on the similarity of their gene expression profiles.
+  + Expression profile similarity is determined via distance metrics, which often take dimensionality‐reduced representations as input.
+  + Seurat assigns cells to clusters based on their PCA scores derived from the expression of the integrated most variable genes.
+
+5. Cluster quality evaluation
+  + The clusters identified in our data represent groups of cells that presumably belong to a similar cell type.
+  + Before we can confirm the celltype of a group of member cells, the following steps are taken:
+  (i) Check to see that clusters are not influenced by sources of uninteresting variation.
+  (ii) Check to see whether the major principal components are driving the different clusters.
+  (iii) Explore the cell type identities by looking at the expression for known markers across the clusters.
+
+## Theory behind normalization
+
+### Count normalization
+
+Count normalization is essential to make accurate comparisons of gene expression between cells (or samples). The counts of mapped reads for each gene is proportional to the expression of RNA ("interesting") in addition to many other factors ("uninteresting"). Normalization is the process of scaling raw count values to account for the "uninteresting" factors. In this way the expression levels are more comparable between and/or within cells.
+
+The main factors often considered during normalization are:
+
+* **Sequencing depth:** Accounting for sequencing depth is necessary for comparison of gene expression between cells. Each cell in scRNA-seq will have a differing number of reads associated with it. So to accurately compare expression between cells, it is necessary to normalize for sequencing depth.
+
+* **Gene length:** Accounting for gene length is necessary for comparing expression between different genes within the same cell. The number of reads mapped to a longer gene can appear to have equal count/expression as a shorter gene that is more highly expressed. In scRNA-seq analysis, we will be comparing the expression of different genes within the cells to cluster the cells. If using a 3’ or 5’ droplet-based method, the length of the gene will not affect the analysis because only the 5’ or 3’ end of the transcript is sequenced. However, if using full-length sequencing, the transcript length should be accounted for.
+
+### Principal Component Analysis
+
+Used for dimensionality reduction.
+
+PC scores are calculated for all sample-PC pairs as described in the steps and schematic below:
+
+1. First, each gene is assigned an "influence" score based on how much it influenced each PC. Genes that did not have any influence on a given PC get scores near zero, while genes with more influence receive larger scores. Genes on the ends of a PC line will have a larger influence, so they would receive larger scores but with opposite signs.
+
+2. Once the influence has been determined, the score for each sample is calculated using the following equation:
+
+`Sample1 PC1 score = (read count * influence) + ... for all genes`
+
+For our 2-sample example, the following is how the scores would be calculated:
+
+```
+## Sample1
+PC1 score = (4 * -2) + (1 * -10) + (8 * 8) + (5 * 1) = 51
+PC2 score = (4 * 0.5) + (1 * 1) + (8 * -5) + (5 * 6) = -7
+
+## Sample2
+PC1 score = (5 * -2) + (4 * -10) + (8 * 8) + (7 * 1) = 21
+PC2 score = (5 * 0.5) + (4 * 1) + (8 * -5) + (7 * 6) = 8.5
+```
+
+3. Once these scores are calculated for all the PCs, they can be plotted on a simple scatter plot.
+
+
+Let’s say you are working with a single-cell RNA-seq dataset with 12,000 cells and you have quantified the expression of 20,000 genes.
+
+The gene expression in each cell/sample is a 12,000 x 20,000 matrix (cells x genes) = read count matrix.
+
+The influence matrix = 20,000 x 12,000 matrix of genes x PC.
+
+The PC score matrix = 12,000 x 12,000 matrix of cells x PC.
+
+After the PC scores have been calculated, you are looking at a matrix of 12,000 x 12,000 that represents the information about relative gene expression in all the cells. You can select the PC1 and PC2 columns and plot that in a 2D way. You can also use the PC scores from the first 40 PCs for downstream analysis like clustering, marker identification etc., since these represent the majority of the variation in the data.
+
+>NOTE: For datasets with a larger number of samples or cells, only the PC1 and PC2 scores for each sample/cell are usually plotted, or used for visualization. Since these PCs explain the most variation in the dataset, the expectation is that the samples/cells that are more similar to each other will cluster together with PC1 and PC2.
+
+## Set up the code
+
+Recommendations:
+
+* Have a good idea of your expectations for the **cell types to be present** prior to performing the clustering. Know whether you expect cell types of low complexity or higher mitochondrial content AND whether the cells are differentiating
+* **Regress out** number of UMIs (default using sctransform), mitochondrial content, and cell cycle, if needed and appropriate for experiment, so not to drive clustering downstream.
+
+```{r libs}
+library(Seurat)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+```
+
+The input for this analysis is a Seurat object. We will use the one that we created in the QC lesson called `filtered_seurat`.
+
+## Explore sources of unwanted variation
+
+Correction for biological covariates serves to single out particular biological signals of interest, while correcting for technical covariates may be crucial to uncovering the underlying biological signal. The most common biological data correction is to remove the effects of the cell cycle on the transcriptome. This data correction can be performed by a simple linear regression against a cell cycle score which is what we will demonstrate below.
+
+The first step is to explore the data and see if we observe any effects in our data. The raw counts are not comparable between cells and we can’t use them as is for our exploratory analysis. So we will perform a **rough normalization** by *dividing by total counts per cell and taking the natural log*, perfomed by `NormalizeData()`. This normalization is **solely for the purpose of exploring the sources of variation in our data**.
+
+```{r}
+# Load the Seurat object - filtered_seurat
+load(file = "data/seurat_filtered_after_QC.RData")
+
+# Normalize the counts
+seurat_phase <- NormalizeData(filtered_seurat)
+```
+
+Next, we take this normalized data and check to see if data correction methods are necessary.
+
+
+### Evaluating effects of cell cycle
+
+To assign each cell a score based on its expression of G2/M and S phase markers, we can use the Seurat function `CellCycleScoring()`. This function calculates cell cycle phase scores based on canonical markers that required as input.
+
+>NOTE: If cells are known to be differentiating and there is clear clustering differences between G2M and S phases, then you may want to regress out by the difference between the G2M and S phase scores as described in the [Seurat tutorial](https://satijalab.org/seurat/v3.0/cell_cycle_vignette.html), thereby still differentiating the cycling from the non-cycling cells.
+
+#### Non-human cell cycle markers
+
+In this example, *Homo sapiens* is used but you can substitute it for the organism of interest.
+
+```{r}
+# Download cell cycle genes for organism at https://github.com/hbc/tinyatlas/tree/master/cell_cycle. Read it in with:
+
+cc_file <- getURL("https://raw.githubusercontent.com/hbc/tinyatlas/master/cell_cycle/Homo_sapiens.csv") 
+cell_cycle_genes <- read.csv(text = cc_file)
+```
+
+All of the cell cycle genes are Ensembl IDs, but our gene IDs are the gene names. To score the genes in our count matrix for cell cycle, we need to obtain the gene names for the cell cycle genes.
+
+We can use annotation databases to acquire these IDs. While there are many different options, including `BioMart`, `AnnotationDBI`, and `AnnotationHub`. We will use the `AnnotationHub` R package to query `Ensembl` using the `ensembldb` R package.
+
+```{r}
+# Load libraries
+library(AnnotationHub)
+library(ensembldb)
+
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Homo sapiens", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+
+Now we can use these annotations to get the corresponding gene names for the Ensembl IDs of the cell cycle genes.
+
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+```
+
+#### Human cell cycle markers
+
+We have provided a list of **human cell cycle markers** for you in the data folder as an `Rdata` file called `cycle.rda`.
+
+Either load the cell markers or create them from scratch as given above.
+
+```{r}
+# Load cell cycle markers
+load(file = "data/cycle.rda")
+
+# Score cells for cell cycle
+seurat_phase <- CellCycleScoring(seurat_phase, g2m.features = g2m_genes, s.features = s_genes)
+```
+
+
+After scoring the cells for cell cycle, we would like to determine whether cell cycle is a major source of variation in our dataset using PCA. To perform PCA, we need to **first choose the most variable features, then scale the data**. Since highly expressed genes exhibit the highest amount of variation and we don’t want our 'highly variable genes' only to reflect high expression, we need to scale the data to scale variation with expression level. The Seurat `ScaleData()` function will scale the data by:
+
+* adjusting the expression of each gene to give a mean expression across cells to be 0
+* scaling expression of each gene to give a variance across cells to be 1
+
+```{r}
+# Identify the most variable genes
+seurat_phase <- FindVariableFeatures(seurat_phase, 
+                     selection.method = "vst",
+                     nfeatures = 2000, 
+                     verbose = FALSE)
+		     
+# Scale the counts
+seurat_phase <- ScaleData(seurat_phase)
+```
+
+>NOTE: For the `selection.method` and `nfeatures` arguments, the values specified are the default settings. Therefore, you do not necessarily need to include these in your code.
+
+Now, we can perform the PCA analysis and plot the first two principal components against each other. We also split the figure by cell cycle phase, to evaluate similarities and/or differences. We **do not** see large differences due to cell cycle phase. Based on this plot, we would **not regress** out the variation due to cell cycle. See [here](https://hbctraining.github.io/scRNA-seq_online/lessons/cell_cycle_scoring.html) for a PCA plot where **we would** regress out variation due to cell cycle.
+
+```{r}
+# Perform PCA
+seurat_phase <- RunPCA(seurat_phase)
+
+# Plot the PCA colored by cell cycle phase
+DimPlot(seurat_phase,
+        reduction = "pca",
+        group.by= "Phase",
+        split.by = "Phase")
+```
+
+
+>NOTE: Alternatively, we could wait and perform the clustering without regression and see if we have clusters separated by cell cycle phase. If we do, then we could come back and perform the regression.
+
+### Evaluating effects of mitochodrial expression
+
+We can perform a quick check similar to looking at cell cycle, but we first can turn the mitochondrial ratio variable into a categorical variable based on quartiles.
+
+```{r}
+# Check quartile values
+summary(seurat_phase@meta.data$mitoRatio)
+```
+
+```{r}
+# Results are
+#    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.00000 0.01438 0.01993 0.02139 0.02669 0.14464 
+# Turn mitoRatio into categorical factor vector based on quartile values
+seurat_phase@meta.data$mitoFr <- cut(seurat_phase@meta.data$mitoRatio, 
+                   breaks=c(-Inf, 0.0144, 0.0199, 0.0267, Inf), 
+                   labels=c("Low","Medium","Medium high", "High"))
+
+```
+
+```{r}
+# Plot the PCA colored by mitoFr
+DimPlot(seurat_phase,
+        reduction = "pca",
+        group.by= "mitoFr",
+        split.by = "mitoFr")
+```
+
+
+Based on this plot, we can see that there is a different pattern of scatter for the plot containing cells with "High" mitochondrial expression. We observe that the lobe of cells on the left-hand side of the plot is where most of the cells with high mitochondrial expression are. For all other levels of mitochondrial expression we see a more even distribution of cells across the PCA plot. Since we see this clear difference, we will regress out the ‘mitoRatio’ when we identify the most variant genes.
+
+Remove `seurat_phase` since it is no longer needed.
+
+```{r}
+rm(seurat_phase)
+```
+
+
+## Normalization and regressing out sources of unwanted variation using SCTransform
+
+The `SCTransform` method models the UMI counts using a regularized negative binomial model to remove the variation due to sequencing depth (total nUMIs per cell), while adjusting the variance based on pooling information across genes with similar abundances (similar to some bulk RNA-seq methods).
+
+The output of the model (residuals) is the normalized expression levels for each transcript tested.
+
+`SCTransform` automatically accounts for cellular sequencing depth by regressing out sequencing depth (nUMIs). However, if there are other sources of uninteresting variation identified in the data during the exploration steps we can also include these. We observed little to no effect due to cell cycle phase and so we chose not to regress this out of our data. We observed some effect of mitochondrial expression and so we choose to regress this out from the data.
+
+Note that `SCTransform()` replaces `NormalizeData`, `ScaleData`, and `FindVariableFeatures`.
+Transformed data will be available in the SCT assay, which is set as the default after running `SCTransform`.
+
+Since we have two samples in our dataset (from two conditions), we want to keep them as separate objects and transform them as that is what is required for integration. We will first split the cells in `filtered_seurat` object into "Control" and "Stimulated":
+
+```{r}
+# Score cells for cell cycle - uncomment if correcting for cell cycle
+# filtered_seurat <- CellCycleScoring(filtered_seurat, g2m.features = g2m_genes, s.features = s_genes)
+
+# Turn mitoRatio into categorical factor vector based on quartile values
+filtered_seurat@meta.data$mitoFr <- cut(filtered_seurat@meta.data$mitoRatio, 
+                   breaks=c(-Inf, 0.0144, 0.0199, 0.0267, Inf), 
+                   labels=c("Low","Medium","Medium high", "High"))
+
+# Jocelyn data:
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.00000 0.02914 0.03616 0.03882 0.04420 0.19978
+
+# Split seurat object by condition to perform cell cycle scoring and SCT on all samples
+split_seurat <- SplitObject(filtered_seurat, split.by = "sample")
+
+split_seurat <- split_seurat[c("ctrl", "stim")]
+
+```
+
+Now we will use a `for` to run `SCTransform()` on each sample, and regress out mitochondrial expression by specifying in the `vars.to.regress` argument of the `SCTransform()` function.
+
+Before we run this `for` loop, we know that the output can generate large R objects/variables in terms of memory. If we have a large dataset, then we might need to adjust the limit for allowable object sizes within R (Default is 500 * 1024 ^ 2 = 500 Mb) using the following code:
+
+```{r}
+options(future.globals.maxSize = 4000 * 1024^2)
+```
+
+Now, we run the following loop to perform the `SCTransform` on all samples. This may take some time (~10 minutes):
+
+```{r}
+for (i in 1:length(split_seurat)) {
+    split_seurat[[i]] <- SCTransform(split_seurat[[i]], vars.to.regress = c("mitoRatio"))
+    }
+```
+
+>NOTE: By default, after normalizing, adjusting the variance, and regressing out uninteresting sources of variation, `SCTransform` will rank the genes by residual variance and output the 3000 most variant genes. If the dataset has larger cell numbers, then it may be beneficial to adjust this parameter higher using the `variable.features.n` argument.
+
+Note, the last line of output specifies "Set default assay to SCT". We can view the different assays that we have stored in our seurat object.
+```{r}
+# Check which assays are stored in objects
+split_seurat$ctrl@assays
+```
+
+Now we can see that in addition to the raw RNA counts, we now have a SCT component in our `assays` slot. The most variable features will be the only genes stored inside the SCT assay. As we move through the scRNA-seq analysis, we will choose the most appropriate assay to use for the different steps in the analysis.
+
+1. Are the same assays available for the "stim" samples within the split_seurat object? What is the code you used to check that?
+
+```{r}
+# Check which assays are stored in objects
+split_seurat$stim@assays
+```
+
+Yes, the same assays are available.
+
+2. Any observations for the genes or features listed under "First 10 features:" and the "Top 10 variable features:" for "ctrl" versus "stim"?
+
+The first 10 features are the same for "ctrl" and "stim" but some of the top 10 variable features are common between both conditions, though ranked differently: FTL, IGKC, GNLY, CCL2, CCL4, CCL7, IGLC2. The genes specific to "ctrl" are TIMP1, CCL3, IGHM. The genes specific to "stim" are CXCL10, CCL8, CCL3.
+
+
+## Save the object
+
+Before finishing up, let’s save this object to the `data/` folder. It can take a while to get back to this stage especially when working with large datasets, it is best practice to save the object as an easily loadable file locally.
+
+```{r}
+# Save the split seurat object
+saveRDS(split_seurat, "data/split_seurat.rds")
+```
+
+## Integration
+
+If you don't integrate, the cells will cluster by condition type not cell type on the PCA. We need the cells to cluster by cell type, so we integrate the conditions.
+
+First, we need to specify that we want to use all of the 3000 most variable genes identified by `SCTransform` for the integration. By default, this function only selects the top 2000 genes. Now, we need to prepare the `SCTransform` object for integration.
+
+```{r}
+# Select the most variable features to use for integration
+integ_features <- SelectIntegrationFeatures(object.list = split_seurat, 
+                                            nfeatures = 3000) 
+
+# Prepare the SCT list object for integration
+split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
+                                   anchor.features = integ_features)
+```
+
+Now, we are going to perform CCA, find the best buddies or anchors and filter incorrect anchors. For our dataset, this will take up to 1 hour to run. *Also, note that the progress bar in your console will stay at 0%, but know that it is actually running.*
+
+```{r}
+# Find best buddies - can take a while to run
+integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
+                                        normalization.method = "SCT", 
+                                        anchor.features = integ_features)
+```
+Finally, we can integrate across conditions.
+
+```{r}
+# Integrate across conditions
+seurat_integrated <- IntegrateData(anchorset = integ_anchors, 
+                                   normalization.method = "SCT")
+```
+If you get this error: `error in x$.self$finalize() attempt to apply non-function in r`, it is a problem with garbage collection not the function.
+
+## UMAP visualization
+
+After integration, to visualize the integrated data we can use dimensionality reduction techniques, such as PCA and Uniform Manifold Approximation and Projection (UMAP). While PCA will determine all PCs, we can only plot two at a time. In contrast, UMAP will take the information from any number of top PCs to arrange the cells in this multidimensional space. It will take those distances in multidimensional space and plot them in two dimensions working to preserve local and global structure. In this way, the distances between cells represent similarity in expression.
+
+To generate these visualizations we need to first run PCA and UMAP methods. Let’s start with PCA.
+
+```{r}
+# Run PCA
+seurat_integrated <- RunPCA(object = seurat_integrated)
+
+# Plot PCA
+PCAPlot(seurat_integrated, split.by = "sample")
+```
+
+
+We can see with the PCA mapping that we have a good overlay of both conditions by PCA.
+
+Now, we can also visualize with UMAP. Let’s run the method and plot. Sometimes it’s easier to see whether all of the cells align well if we split the plotting between conditions, which we can do by adding the `split.by` argument to the `DimPlot()` function:
+
+```{r}
+# Run UMAP
+seurat_integrated <- RunUMAP(seurat_integrated, dims = 1:40, reduction = "pca")
+
+# Plot UMAP split by sample
+DimPlot(seurat_integrated, split.by = "sample")  
+```
+
+Now, save the integrated Seurat object because it took 2 hours to create it.
+
+```{r}
+# Save integrated Seurat object
+saveRDS(seurat_integrated, "results/integrated_seurat.rds")
+```
+
+## Session Information
+
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,1137 @@
+---
+title: "scRNA-seq Tutorial 1"
+author: "Suparna"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 12, message = FALSE)
+```
+
+# Single Cell RNA-seq Workshop - Day 1: Quality Control
+
+[Here](https://hbctraining.github.io/scRNA-seq_online/schedule/) is the link to the workshop.
+
+## Raw Data
+
+The raw data is available as BAM files on SRA (SRP102802). These BAM files were converted back to FASTQ files and run through Cell Ranger to obtain count data used in this tutorial.
+
+This was done because the counts matrix posted on GEO (GSE96583) lacked mitochondrial reads. But mitochondrial reads are an important factor for quality control.
+
+The counts matrix in this tutorial is also used in the official Seurat tutorial.
+
+## Metadata
+
+* The libraries were prepared using 10X Genomics version 2 chemistry
+
+* The samples were sequenced on the Illumina NextSeq 500
+
+* PBMC samples from 8 lupus patients were separated into 2 aliquots each - stimulated and unstimulated with IFN-$\beta$. After 6 hours, **all the samples were pooled together**.
+
+* After removing doublets, there are 12,138 cells in control (untreated) and 12,167 cells in the stimulated **pooled** samples.
+
+* Since the samples are PBMCs, we expect immune cells like
+    + B cells
+    + T cells
+    + NK cells
+    + monocytes
+    + macrophages
+    + possibly megakaryocytes
+
+
+While performing scRNA-seq, you should have an idea of what cell types to expect. This helps evaluate quality control metrics. For example, if the *mitochondrial expression* is very high, either the sample quality is poor because of the presence of many lysed/apoptotic cells, or this is a cell-intrinsic property, like in tumor cells. If it's the former, exclude those cells from the analysis. If it's the latter, **do not exclude** from analysis.
+
+Also watch out for cells with *low complexity* (lots of transcripts from a few genes). Knowing the expected cell types helps to decide whether to exclude such cells from analysis.
+
+If possible, **de-MUX the samples before starting the analysis** and *perform QC on each individual sample*. In this tutorial, there was no sample data for each patient. Only pooled samples were available. You can use Cell Ranger functions to de-MUX.
+
+This data is not expected to have low complexity or high mitochondrial reads.
+
+
+## Load Libraries
+
+```{r libs}
+library(knitr) # for Rmd
+
+library(SingleCellExperiment)
+library(Seurat)
+library(tidyverse)
+library(Matrix)
+library(scales)
+library(cowplot)
+library(RCurl)
+
+# For mitochondrial reads
+library(AnnotationHub)
+library(ensembldb)
+```
+
+## Reading Data and Generating Metadata
+
+For each individual sample, you will have 3 files. These files are stored in `data/ctrl_raw_feature_bc_matrix/`:
+
+1. Cell IDs: All cells quanitfied - `barcodes.tsv` has all the cellular barcodes present for the sample. Each barcode represents a cell. They are listed in the order of the data present in the matrix file (column names).
+
+2. Gene IDs: All genes quanitfied - `features.tsv` has all the gene IDs (can be Ensembl, NCBI, UCSC) along with official gene symbols in the 2nd column. They (1st column) are listed in the order of the rows in the matrix file (row names).
+
+3. Matrix of counts per gene per cell - `matrix.mtx` has gene IDs as rows and cell barcodes as columns. There are many zeroes in the matrix so loading this as a matrix will occupy a lot of space. Instead, convert it to a *sparse matrix* to improve computing time and take up less space.
+
+
+There are 2 ways to read the data (choose one):
+
+1. `readMM()`: This function is from the **Matrix** package and it turns a standard matrix into a sparse matrix. The `features.tsv` and `barcodes.tsv` must be individually loaded into R and then combined.
+
+2. `Read10X()`: This function is from the **Seurat** package and will use the Cell Ranger output directory (`outs`) as input, so you don't have to load individual files. Cell Ranger is a 10X proprietary software. The `outs` directory contains many files, including:
+    i) `web_summary.html`: A QC report that contains mapping metrics, filtering thresholds, estimated number of cells after filtering, information on number of genes and reads per cell after filtering.
+    ii) **BAM alignment files**: Files used for visualization of mapped reads and for re-creation of FASTQ files.
+    iii) `filtered_feature_bc_matrix`: Folder of files needed to construct the count matrix using data filtered by Cell Ranger.
+    iv) `raw_feature_bc_matrix`: Folder of files needed to construct the count matrix using raw *unfiltered* data.
+
+
+We will use the `raw_feature_bc_matrix` because we're performing our own QC and filtering by accounting for biology.
+
+### Using `readMM()`
+
+This would take a long time if we had multiple samples. A quicker way to load multiple samples is to use `Read10X()`.
+
+If using other droplet-based methods for library preparation, this method (not Seurat) will be needed to perform QC.
+
+In this tutorial, we only have one sample for control and one sample for treatment. However, each sample will have its own folder containing features, barcodes, and counts file. In order to read them for all samples, use a `for` loop.
+
+
+We will be using AnnotationHub, which allows accession to a wide variety of online databases and other resources, to query Ensembl annotations made available through ensembldb. Ensembldb is a package that retrieves annotation for the databases directly from the Ensembl Perl API.
+
+#### Downloading database for organism of interest
+
+To access the various annotations available from Ensembl for human, we need to first connect to AnnotationHub, then specify the organism and database we are interested in.
+
+```{r}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, pattern = c("Homo sapiens", "EnsDb"), ignore.case = TRUE)
+```
+
+Next, we acquire the latest annotation files from this Ensembl database.
+
+```{r}
+# Acquire the latest annotation files
+id <- ahDb %>% mcols() %>% rownames() %>% tail(n = 1)
+```
+
+Finally, we can use the AnnotationHub connection to download the appropriate Ensembl database, which should be version GRCh38.92.
+
+```{r}
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+```
+
+And to extract gene-level information we can use the Ensembldb function `genes()` to return a data frame of annotations.
+
+```{r}
+# Extract gene-level information from database
+annotations <- genes(edb, return.type = "data.frame")
+```
+
+#### Extracting IDs for mitochondrial genes
+
+We don't need all the information present in this annotations file, so we are going to extract the useful part.
+
+```{r}
+# Select annotations of interest
+annotations <- annotations %>%
+  dplyr::select(gene_id, gene_name, gene_biotype, seq_name, description, entrezid)
+```
+
+Since we are looking for genes associated with mitochondrial gene expression, the biotype information is the field we should query. Let’s explore the options:
+
+```{r}
+# Explore biotypes
+annotations$gene_biotype %>%
+  factor() %>%
+  levels()
+```
+
+Now we can retrieve the genes associated with the out biotypes of interest, i.e., mitochondrial genes:
+
+```{r}
+# Extract IDs for mitochondrial genes
+mt <- annotations %>% 
+  dplyr::filter(seq_name == "MT") %>%
+  dplyr::pull(gene_id)
+```
+
+Remove all large objects.
+
+```{r}
+rm(ah, ahDb, annotations, edb, id)
+```
+
+
+#### For a single sample
+
+```{r}
+# Read in the matrix file
+counts <- readMM("data/ctrl_raw_feature_bc_matrix/matrix.mtx.gz")
+
+# Read genes file
+genes <- read_tsv("data/ctrl_raw_feature_bc_matrix/features.tsv.gz", col_names = FALSE)
+gene_ids <- genes$X1
+
+# Read barcodes file
+cell_ids <- read_tsv("data/ctrl_raw_feature_bc_matrix/barcodes.tsv.gz", col_names = FALSE)$X1
+
+# Make the column names as the cell IDs and the row names as the gene IDs
+rownames(counts) <- gene_ids
+colnames(counts) <- cell_ids
+
+# Create a sparse matrix
+counts <- as(counts, "dgCMatrix")
+```
+
+Now that we have a counts matrix with the genes as row names and cells as columns, we can create our metadata with information about the different metrics to evaluate during quality control assessment.
+
+We will create the metadata with only the cell IDs:
+
+```{r}
+# Create metadata containing only the cell IDs
+metadata <- data.frame(row.names = cell_ids, cells = cell_ids, stringsAsFactors = F)
+```
+
+Then, we can add information about the number of UMIs per cell,
+
+```{r}
+# Add number of UMIs for each gene per cell to metadata
+metadata$nUMI <- Matrix::colSums(counts)
+```
+
+the number of genes identified per cell,
+
+```{r}
+# Add number of genes detected per cell to metadata
+metadata$nGene <- Matrix::colSums(counts > 0)
+```
+
+the number of genes per UMI for each cell,
+
+```{r}
+# Add number of UMIs per gene for each cell to metadata
+metadata$log10GenesPerUMI <- log10(metadata$nGene) / log10(metadata$nUMI)
+```
+
+and the sample names. However, with this dataset we only have a single sample.
+
+```{r}
+# Add sample name associated with each cell to metadata (we only have one sample, so more important when you have multiple samples)
+metadata$sample <- "unstimulated"
+```
+
+##### Adding metrics to metadata
+
+Now that we have information about which genes are mitochondrial, we can quanitify whether we have contamination.
+
+```{r}
+# Number of UMIs assigned to mitochondrial genes
+metadata$mtUMI <- Matrix::colSums(counts[which(rownames(counts) %in% mt),], na.rm = T)
+
+# Ensure all NAs receive zero counts
+metadata$mtUMI[is.na(metadata$mtUMI)] <- 0
+
+# Calculate of mitoRatio per cell
+metadata$mitoRatio <- metadata$mtUMI/metadata$nUMI
+```
+
+Now you are all setup with the metrics you need to assess the quality of your data! Your final metadata table will have rows that correspond to each cell, and columns with information about those cells.
+
+##### Initial filtering
+
+Prior to assessing our metrics, we are going to perform a very minimal filtering of those cells with less than 100 UMIs to get rid of the cells that are clearly junk, containing less than 100 UMIs.
+
+```{r}
+# Keep cells with nUMI greater than 100
+idx <- which(metadata$nUMI > 100)
+
+# Extract the counts for those cells
+counts_c <- counts[, idx]
+
+# Extract the metadata for those cells
+metadata_c <- metadata[idx,]
+```
+
+
+#### For multiple samples
+
+Using a `for` loop to create the sparse matrix for each sample and associated metadata. Add metrics to metadata and perform initial filtering.
+
+```{r}
+# Names of all samples - vector
+data_folder_names <- c("ctrl_raw_feature_bc_matrix", "stim_raw_feature_bc_matrix")
+
+# Counts matrix and metadata for all samples
+for (file in data_folder_names){
+  
+  # Read in the matrix file
+  counts <- readMM(paste0("data/", file, "/matrix.mtx.gz"))
+  
+  # Read genes file - readr function
+  genes <- read_tsv(file = paste0("data/", file, "/features.tsv.gz"), col_names = FALSE)
+  gene_ids <- genes$X1
+  
+  # Read barcodes file - readr function
+  cell_ids <- read_tsv(file = paste0("data/", file, "/barcodes.tsv.gz"), col_names = FALSE)$X1
+  
+  # Make the column names as the cell IDs and the row names as the gene IDs
+  rownames(counts) <- gene_ids
+  colnames(counts) <- cell_ids
+  
+  # Create a sparse matrix
+  counts <- as(counts, "dgCMatrix")
+  
+  # Create metadata containing only the cell IDs
+  metadata <- data.frame(row.names = cell_ids, cells = cell_ids, stringsAsFactors = FALSE)
+  
+  # Add number of UMIs for each gene per cell to metadata
+  metadata$nUMI <- Matrix::colSums(counts)
+  
+  # Add number of genes detected per cell to metadata
+  metadata$nGene <- Matrix::colSums(counts > 0)
+  
+  # Add number of UMIs per gene for each cell to metadata
+  metadata$log10GenesPerUMI <- log10(metadata$nGene) / log10(metadata$nUMI)
+  
+  # Add sample name associated with each cell to metadata
+  metadata$sample <- file
+  
+  # Number of UMIs assigned to mitochondrial genes
+  metadata$mtUMI <- Matrix::colSums(counts[which(rownames(counts) %in% mt),], na.rm = T)
+  
+  # Ensure all NAs receive zero counts
+  metadata$mtUMI[is.na(metadata$mtUMI)] <- 0
+  
+  # Calculate of mitoRatio per cell
+  metadata$mitoRatio <- metadata$mtUMI/metadata$nUMI
+  
+  # Keep cells with nUMI greater than 100
+  idx <- which(metadata$nUMI > 100)
+  
+  # Extract the counts for those cells
+  counts <- counts[, idx]
+  
+  # Extract the metadata for those cells
+  metadata <- metadata[idx,]
+  
+  # Rename counts and metadata according to sample name
+  assign(file, counts)
+  assign(paste0("metadata_", file), metadata)
+}
+
+# Remove extra variables
+rm(counts, genes, metadata, cell_ids, file, gene_ids)
+```
+
+Now that we have read the counts in multiple batches we need to combine them into a single `SingleCellExperiment` object. First we will check that the gene names are the same and in the same order across all batches. Using a `for` loop to iterate over all samples present.
+
+```{r}
+# Checking if gene names are same
+for (i in 1:(length(data_folder_names)-1)){
+  for (j in (i+1):length(data_folder_names)) {
+    print(identical(rownames(data_folder_names[i]), rownames(data_folder_names[j])))
+  }
+}
+
+# All instances must be true
+```
+
+Now we’ll check that there aren’t any repeated cell IDs. Using a `for` loop to iterate over all samples present.
+
+```{r}
+# Checking repeated cell IDs
+for (i in 1:(length(data_folder_names)-1)){
+  for (j in (i+1):length(data_folder_names)) {
+    print(sum(colnames(rownames(data_folder_names[i])) %in% colnames(rownames(data_folder_names[j]))))
+  }
+}
+
+# All instances must be 0
+```
+
+If there are **no** repeated *cell IDs* and all *gene names* are the **same** across all batches, we will merge the counts matrices and metadata matrices. Use `cbind()` to merge all the counts matrices and `rbind()` for metadata.
+
+```{r}
+# Merge counts
+merged_counts <- cbind(ctrl_raw_feature_bc_matrix, stim_raw_feature_bc_matrix)
+
+# Merge metadata
+merged_metadata <- as.data.frame(rbind(metadata_ctrl_raw_feature_bc_matrix, metadata_stim_raw_feature_bc_matrix))
+```
+
+#### Saving metrics to single cell experiment
+
+Before we assess our metrics we are going to save all of the work we have done thus far to a single cell experiment object, which is a standard object for single cell data in R.
+
+```{r}
+# Save data to single cell experiment variable
+sce <- SingleCellExperiment(assays=list(counts=merged_counts), 
+                           colData = merged_metadata)
+                           
+# Create .RData object to load at any time
+saveRDS(sce, "data/merged_filtered_sce.rds")
+```
+
+Removing all other files because only the `SingleCellExperiment` object is sufficient.
+
+```{r}
+rm(ctrl_raw_feature_bc_matrix, merged_counts, merged_metadata, metadata_ctrl_raw_feature_bc_matrix, metadata_stim_raw_feature_bc_matrix, stim_raw_feature_bc_matrix, data_folder_names, file, i, j, idx, mt)
+```
+
+
+### Using `Read10X()`
+
+To be used when data is generated using 10X Genomics. If not, use the above method.
+
+#### For a single sample
+
+```{r}
+# Read in control sample as sparse matrix
+ctrl_counts <- Read10X(data.dir = "data/ctrl_raw_feature_bc_matrix/")
+```
+
+Convert the sparse matrix to a Seurat object. If the cell has <100 genes, remove it because it is likely not a cell.
+
+```{r}
+ctrl <- CreateSeuratObject(counts = ctrl_counts, min.features = 100)
+```
+
+Look at the metadata.
+```{r}
+kable(head(ctrl@meta.data))
+```
+
+#### For multiple samples
+
+Using a `for` loop.
+
+```{r}
+# Create each individual Seurat object for every sample
+for (file in c("ctrl_raw_feature_bc_matrix", "stim_raw_feature_bc_matrix")){
+        seurat_data <- Read10X(data.dir = paste0("data/", file))
+        seurat_obj <- CreateSeuratObject(counts = seurat_data, 
+                                         min.features = 100, 
+                                         project = file)
+        assign(file, seurat_obj)
+}
+```
+
+Now that we have created both of these objects, let’s take a quick look at the metadata to see how it looks:
+
+```{r}
+# Check the metadata in the new Seurat objects
+kable(head(ctrl_raw_feature_bc_matrix@meta.data))
+kable(head(stim_raw_feature_bc_matrix@meta.data))
+```
+
+Next, we need to merge these objects together into a single Seurat object. This will make it easier to run the QC steps for both sample groups together and enable us to easily compare the data quality for all the samples. We can use the `merge()` function from the **Seurat** package to do this. To combine more than two 10X runs, view [this](https://satijalab.org/seurat/articles/merge_vignette.html#:~:text=To%20merge%20more%20than%20two,loaded%20via%20the%20SeuratData%20package).
+
+```{r}
+# Create a merged Seurat object
+merged_seurat <- merge(x = ctrl_raw_feature_bc_matrix, 
+                       y = stim_raw_feature_bc_matrix, 
+                       add.cell.id = c("ctrl", "stim"))
+
+# If there are more than 2 objects, the argument in merge changes to y = c(obj2, obj3) and add.cell.id = c("cond1", "cond2", "cond3")
+```
+
+Because the same cell IDs can be used for different samples, we added a **sample-specific prefix** to each of our cell IDs using the add.cell.id argument. If we look at the metadata of the merged object we should be able to see the prefixes in the row names:
+
+```{r}
+# Check that the merged object has the appropriate sample-specific prefixes
+kable(head(merged_seurat@meta.data))
+kable(tail(merged_seurat@meta.data))
+```
+
+Removing unnecessary data from the workspace:
+
+```{r}
+rm(ctrl_raw_feature_bc_matrix, seurat_data, seurat_obj, stim_raw_feature_bc_matrix)
+```
+
+
+In the metadata, there are three columns of information:
+
+* `orig.ident`: this column will contain the sample identity if known. It will default to the value we provided for the `project` argument when loading in the data
+* `nCount_RNA`: this column represents the number of UMIs per cell
+* `nFeature_RNA`: this column represents the number of genes detected per cell
+
+In order to create the appropriate plots for the quality control analysis, we need to calculate some additional metrics. These include:
+
+* **number of genes detected per UMI:** this metric with give us an idea of the complexity of our dataset (more genes detected per UMI, more complex our data)
+* **mitochondrial ratio:** this metric will give us a percentage of cell reads originating from the mitochondrial genes
+
+#### Number of genes detected per UMI
+
+This value is quite easy to calculate, as we take the $\dfrac{log_{10} (number\ of\ genes\ detected\ per\ cell)}{log_{10}(number\ of\ UMIs\ per\ cell)}$.
+
+```{r}
+# Add number of genes per UMI for each cell to metadata
+merged_seurat$log10GenesPerUMI <- log10(merged_seurat$nFeature_RNA) / log10(merged_seurat$nCount_RNA)
+```
+
+#### Mitochondrial Ratio
+
+Seurat has a convenient function that allows us to calculate the **proportion of transcripts mapping to mitochondrial genes**. The `PercentageFeatureSet()` function takes in a `pattern` argument and searches through all gene identifiers in the dataset for that pattern. Since we are looking for mitochondrial genes, we are searching any gene identifiers that begin with the pattern "^MT-". For each cell, the function takes the sum of counts across all genes (features) belonging to the "^MT-" set, and then divides by the count sum for all genes (features). This value is multiplied by 100 to obtain a percentage value.
+
+> For our analysis, rather than using a percentage value we would prefer to work with the ratio value. As such, we will reverse that last step performed by the function by taking the output value and dividing by 100.
+
+```{r}
+# Compute percent mito ratio
+merged_seurat$mitoRatio <- PercentageFeatureSet(object = merged_seurat, pattern = "^MT-")
+merged_seurat$mitoRatio <- merged_seurat@meta.data$mitoRatio / 100
+```
+
+The pattern provided ("^MT-") works for human gene names. You may need to adjust the pattern argument depending on your organism of interest. Additionally, if you are not using gene names as the gene ID, then this function will not work because the pattern will not suffice. 
+In such a case, you have to manually compute mitochondrial ratio. Just like in the `readMM()` section, we have to use `AnnotationHub`.
+
+The determination of mitochondrial ratios is a bit more complex and requires us to use genome annotations to determine which genes originated from the mitochondrial DNA. We will be using `AnnotationHub`, which allows accession to a wide variety of online databases and other resources, to query `Ensembl` annotations made available through `ensembldb`. `Ensembldb` is a package that retrieves annotation for the databases directly from `Ensembl`.
+
+To access the various annotations available from `Ensembl` for **human**, we need to first connect to `AnnotationHub`, then specify the organism and database we are interested in.
+
+```{r}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Homo sapiens", "EnsDb"), 
+              ignore.case = TRUE)
+```
+
+Next, we acquire the latest annotation files from this Ensembl database.
+
+```{r}
+# Acquire the latest annotation files
+id <- ahDb %>%
+  mcols() %>%
+  rownames() %>%
+  tail(n = 1)
+```
+
+Finally, we can use the AnnotationHub connection to download the appropriate Ensembl database, which should be version GRCh38.92.
+
+```{r}
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+```
+
+And to extract gene-level information we can use the Ensembldb function `genes()` to return a data frame of annotations.
+
+```{r}
+# Extract gene-level information from database
+annotations <- genes(edb, return.type = "data.frame")
+```
+
+We aren't interested in all of the information present in this annotations file, so we are going to extract that which is useful to us.
+
+```{r}
+# Select annotations of interest
+annotations <- annotations %>%
+  dplyr::select(gene_id, gene_name, gene_biotype, seq_name, description, entrezid)
+```
+
+Now we can retrieve the genes associated with the different biotypes of interest:
+
+```{r}
+# Extract IDs for mitochondrial genes
+mt <- annotations %>%
+        dplyr::filter(seq_name == "MT") %>%
+        dplyr::pull(gene_name)
+```
+
+Now that we have information about which genes are mitochondrial, we can quanitify whether we have contamination.
+
+```{r}
+# Number of UMIs assigned to mitochondrial genes
+metadata$mtUMI <- Matrix::colSums(counts[which(rownames(counts) %in% mt),], na.rm = T)
+
+# Calculate of mitoRatio per cell
+metadata$mitoRatio <- metadata$mtUMI/metadata$nUMI
+```
+
+Removing unnecessary objects:
+
+```{r}
+rm(ah, ahDb, id, edb, annotations)
+```
+
+#### Additional metadata columns
+
+Include cell IDs and condition information is to be added in the metadata.
+
+When we added columns of information to our metadata file above, we simply added it directly to the metadata slot in the Seurat object using the $ operator. We could continue to do so for the next few columns of data, but instead we will extract the data frame into a separate variable. In this way we can work with the metadata data frame as a separate entity from the Seurat object without the risk of affecting any other data stored inside the object.
+
+Let’s begin by creating the metadata data frame by extracting the `meta.data` slot from the Seurat object:
+
+```{r}
+# Create metadata dataframe
+metadata <- merged_seurat@meta.data
+```
+
+Add a new column for **cell identifiers**. This information is currently located in the row names of our metadata data frame. We will keep the row names as is and duplicate it into a new column called `cells`:
+
+```{r}
+# Add cell IDs to metadata
+metadata$cells <- rownames(metadata)
+```
+
+You should see that each cell ID has a `ctrl_` or `stim_` prefix as we had specified when we merged the Seurat objects. We can use this prefix to create a new column indicating which condition each cell is classified under. We will call this column `sample`:
+
+```{r}
+# Create sample column
+metadata$sample <- NA
+metadata$sample[which(str_detect(metadata$cells, "^ctrl_"))] <- "ctrl"
+metadata$sample[which(str_detect(metadata$cells, "^stim_"))] <- "stim"
+```
+
+And finally, we will **rename some of the existing columns** in our metadata data frame to be more intuitive:
+
+```{r}
+# Rename columns
+metadata <- metadata %>%
+        dplyr::rename(seq_folder = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+```
+
+Before we assess our metrics we are going to save all of the work we have done thus far back into our Seurat object. We can do this by simply assigning the data frame into the `meta.data` slot:
+
+```{r}
+# Add metadata back to Seurat object
+merged_seurat@meta.data <- metadata
+                           
+# Create .RData object to load at any time
+save(merged_seurat, file="data/merged_filtered_seurat.RData")
+```
+
+Removing unnecessary data:
+```{r}
+# If mitochondrial reads are not calculated from AnnotationHub, do not mention "mt" in rm()
+rm(mt, merged_seurat)
+```
+
+
+## Assessing QC Metrics
+
+Now that we have generated the various metrics to assess, we can explore them with visualizations. This data is good but [here](https://hbctraining.github.io/scRNA-seq_online/lessons/QC_bad_data.html) are QC metrics for bad data.
+
+#### For data from a Single Cell Experiment object
+
+We will create our metrics file from the metadata stored in the single cell experiment object.
+
+```{r}
+# Read the RDS file
+sce <- readRDS(file = "data/merged_filtered_sce.rds")
+
+# Create a data frame containing the metrics for visualizations
+metrics <- colData(sce) %>% as.data.frame
+```
+
+#### For data from a Seurat object
+
+We will create our metrics file from the metadata stored in the Seurat object.
+
+```{r}
+# Read the RData file
+load(file = "data/merged_filtered_seurat.RData")
+
+# Create a data frame containing the metrics for visualizations
+metrics <- merged_seurat@meta.data
+```
+
+
+#### Types of QC Metrics
+
+We will explore the following metrics through visualizations to decide on which cells are low quality and should be removed from the analysis:
+
+* Cell counts
+* UMI counts per cell
+* Genes detected per cell
+* UMIs vs. genes detected
+* Mitochondrial counts ratio
+* Novelty
+
+>**What about doublets?**
+In single-cell RNA sequencing experiments, doublets are generated from two cells due to errors in cell sorting or capture, especially in droplet-based protocols. They can incorrectly suggest the existence of intermediate populations or transitory states that do not actually exist. Thus, it is desirable to remove doublet libraries so that they do not compromise interpretation of the results.
+Many workflows use maximum thresholds for UMIs or genes, with the idea that a much higher number of reads or genes detected indicate multiple cells. **This is not accurate**. Many tools used to detect doublets tend to get rid of cells with intermediate or continuous phenotypes, although they may work well on datasets with very discrete cell types. [Scrublet](https://github.com/AllonKleinLab/scrublet) is a popular tool for doublet detection. Currently, we recommend not including any thresholds at this point in time. *When we have identified markers for each of the clusters, we suggest exploring the markers to determine whether the markers apply to more than one cell type.*
+
+### Cell counts
+
+The cell counts are determined by the number of unique cellular barcodes detected. For this experiment, between 12,000 -13,000 cells are expected.
+
+In an ideal world, you would expect the number of unique cellular barcodes to be around the number of sequenced cells or greater. However, this is not the case as capture rates of cells are only a proportion of what is loaded. For example, the inDrops cell capture efficiency is higher (70-80%) compared to 10X which is between 50-60%.
+
+The capture efficiency could appear much lower if the cell concentration used for library preparation was not accurate. Cell concentration should **NOT** be determined by FACS machine or Bioanalyzer (these tools are not accurate for concentration determination); instead use a hemocytometer or automated cell counter for calculation of cell concentration.
+
+In single-cell protocols using hydrogels, like inDrops, some hydrogels may have more than one cellular barcode (see details in note below). **After we remove the low quality cells by filtering, we will expect the number of cells to be at or a bit below the number of sequenced cells.**
+
+> NOTE: During the inDrop protocol, the cellular barcodes are present in the hydrogels, which are encapsulated in the droplets with a single cell and lysis/reaction mixture. Upon treatment of UV and cell lysis, all components mix together inside the droplet and reverse transcription proceeds, followed by droplet breakup and linear amplification for library preparation. While each hydrogel should have a single cellular barcode associated with it, occasionally a hydrogel can have more than one cellular barcode. Similarly, with the 10X protocol there is a chance of obtaining only a barcoded bead in the emulsion droplet (GEM) and no actual cell. Both of these, in addition to the presence of dying cells can lead to a higher number of cellular barcodes than cells.
+
+```{r}
+# Visualize the number of cell counts per cell
+metrics %>% 
+  ggplot(aes(x=sample, fill=sample), size = 10) + 
+  geom_bar(width = 0.20) + 
+  ggtitle("NCells") +
+  theme_bw() +
+  theme(axis.text.x = element_text(size=rel(3), angle = 45, hjust = 1),
+        axis.text.y = element_text(size=rel(4)),
+        axis.title = element_text(size=rel(4)),
+        plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+        legend.text = element_text(size=20),
+        legend.title = element_text(size=20))
+
+# ggplot(aes(x=sampleName, fill= group)) - group refers to sample and sampleName refers to data for the sample
+```
+
+
+
+We see over 15,000 cells per sample, which is quite a bit more than the 12-13,000 expected. It is clear that we likely have some junk ‘cells’ present.
+
+
+### UMI counts (transcripts) per cell
+
+The UMI counts per cell should be above 500 as a bare minimum. Although usable, it’s still low if between 500-1000 counts. Then the cells probably should have been sequenced more deeply.
+
+```{r}
+# Visualize the number UMIs/transcripts per cell
+metrics %>% 
+        ggplot(aes(color=sample, x=nUMI, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        ylab("log10 cell density") +
+        geom_vline(xintercept = 500) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+
+
+We can see that majority of our cells in both samples have 1000 UMIs or greater, which is great.
+
+
+### Genes detected per cell
+
+We have similar expectations for gene detection as for UMI detection, although it may be a bit lower than UMIs. For high quality data, the proportional histogram should contain a single large peak that represents cells that were encapsulated. If we see a small shoulder to the left of the major peak (not present in our data), or a bimodal distribution of the cells, that can indicate a couple of things. It might be that there are a set of cells that failed for some reason. It could also be that there are biologically different types of cells (i.e. quiescent cell populations, less complex cells of interest), and/or one type is much smaller than the other (i.e. cells with high counts may be cells that are larger in size). Therefore, this threshold should be assessed with other metrics that we describe in this lesson.
+
+For **inDrop** analysis, the normal range of gene detection is 500-5000. However, 500-1000 counts is low and the cells should be sequenced more deeply.
+
+Setting the threshold as 300:
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram
+metrics %>% 
+        ggplot(aes(color=sample, x=nGene, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        geom_vline(xintercept = 300) +
+        theme_classic() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+
+Box plot instead of histogram:
+
+```{r}
+# Visualize the distribution of genes detected per cell via boxplot
+metrics %>% 
+        ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
+        geom_boxplot() + 
+        ggtitle("NCells vs NGenes") +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=rel(3)),
+              axis.text.y = element_text(size=rel(4)),
+              axis.title = element_text(size=rel(4)),
+              plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+### UMIs vs. genes detected
+
+Two metrics that are often evaluated together are the number of UMIs and the number of genes detected per cell. Here, we have plotted the number of genes versus the number of UMIs coloured by the fraction of mitochondrial reads. Mitochondrial read fractions are only high in particularly low count cells with few detected genes (darker colored data points). This could be indicative of damaged/dying cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus, only mRNA located in the mitochondria is still conserved. These cells are filtered out by our count and gene number thresholds. Jointly visualizing the count and gene thresholds shows the joint filtering effect.
+
+With this plot we also evaluate the slope of the line, and any scatter of data points in the bottom right hand quadrant of the plot. These cells have a high number of UMIs but only a few number of genes. These could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).
+
+Poor quality cells are likely to have low genes and UMIs per cell. Therefore, a poor sample is likely to have cells in the bottom left quadrant of the plot. Good cells should exhibit both higher number of genes per cell and higher numbers of UMIs. We also expect similar lines with similar slopes for all samples.
+
+```{r}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metrics %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point() + 
+	  scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 250) +
+  	facet_wrap(~sample)+
+    theme(axis.text.x = element_text(size=rel(3)),
+          axis.text.y = element_text(size=rel(4)),
+          axis.title = element_text(size=rel(4)),
+          plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+          legend.text = element_text(size=20),
+          legend.title = element_text(size=20))
+```
+### Mitochondrial counts ratio
+
+This metric can identify whether there is a large amount of mitochondrial contamination from dead or dying cells. Poor quality samples for mitochondrial counts would have larger peaks above the 0.2 mitochondrial ratio mark, unless it is expected based on sample type.
+
+```{r}
+# Visualize the distribution of mitochondrial gene expression detected per cell
+metrics %>% 
+        ggplot(aes(color=sample, x=mitoRatio, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        geom_vline(xintercept = 0.2) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.title = element_text(size=25),
+              legend.text = element_text(size = 25))
+```
+
+### Reads per cell
+
+Reads per cell is another metric that can be useful to explore; however, the workflow used would need to save this information to assess. Generally, with this metric you hope to see all of the samples with peaks in relatively the same location between 10,000 and 100,000 reads per cell.
+
+```{r}
+metrics %>% 
+  group_by(sample) %>% 
+  summarise(Reads = sum(nUMI)) %>%
+  add_column(group=rep(paste0("Sample", 1:2),each=1)) %>% 
+  ggplot(aes(x=sample, y=Reads, fill=group)) + 
+  geom_bar(stat = "identity", width = 0.2) +
+  theme_bw() +
+  theme(axis.text.x =element_text(angle = 45, hjust=1, size = 30),
+       axis.text.y = element_text(size=40),
+       axis.title = element_text(size=40),
+       plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+       legend.title = element_text(size=25),
+       legend.text = element_text(size = 25))
+
+# For 3 groups containing 3 samples each, like under sample 1 there is sample_1.1, 1.2, 1.3:
+# add_column(group=rep(paste0("Sample", 1:3),each=3))
+
+# summarise(Reads = sum(nCounts)) - nCounts is the same as nUMI
+
+```
+
+
+### Novelty/Complexity
+
+We can see the samples where we sequenced each cell less have a higher overall novelty/complexity, that is because we have not started saturating the sequencing for any given gene for these samples. Outlier cells in these samples might be cells that have a less complex RNA species than other cells. Sometimes we can detect contamination with low complexity cell types like red blood cells via this metric. **Generally, we expect the novelty score to be above 0.80**.
+
+```{r}
+# Visualize the overall novelty of the gene expression by visualizing the genes detected per UMI
+metrics %>%
+        ggplot(aes(x=log10GenesPerUMI, color = sample, fill=sample)) +
+        geom_density(alpha = 0.2) +
+        geom_vline(xintercept = 0.8) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.title = element_text(size=25),
+              legend.text = element_text(size = 25))
+```
+
+## Filtering
+
+Considering any of these QC metrics in isolation can lead to misinterpretation of cellular signals. For example, cells with a comparatively high fraction of mitochondrial counts may be involved in respiratory processes and may be cells that you would like to keep. Likewise, other metrics can have other biological interpretations. Thus, always consider the joint effects of these metrics when setting thresholds and set them to be as permissive as possible to avoid filtering out viable cell populations unintentionally.
+
+### For SingleCellExperiment object
+
+```{r}
+## Cell-level filtering
+# Filter out low quality reads using selected thresholds - these will change with experiment
+keep <- metrics %>%
+  dplyr::filter(nUMI >= 500 , 
+                nGene >= 250,
+                log10GenesPerUMI > 0.8,
+                mitoRatio < 0.2,
+                ) %>% 
+  pull(cells)
+
+# Subset the cells to only include those that meet the thresholds specified
+se_c <- sce[ ,keep]
+
+
+## Gene-level filtering: Remove genes with zero counts
+# Extract counts
+counts <- GetAssayData(object = se_c, slot = "counts")
+
+# Output a logical matrix specifying for each gene on whether or not there are more than zero counts per cell
+nonzero <- counts > 0
+
+# Sums all TRUE values and returns TRUE if more than 10 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 10
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+
+filtered_seurat <- CreateSeuratObject(filtered_counts, meta.data = filtered_seurat@meta.data)
+
+# Save subset to new metrics variable
+metrics_clean <- colData(se_c) %>%
+ as.data.frame()
+
+# Save cleaned single-cell experiment as .RDS to load at any time
+saveRDS(se_c, file = "data/se_filtered.rds")
+```
+
+### For Seurat object
+
+#### Cell-level filtering
+
+Now that we have visualized the various metrics, we can decide on the thresholds to use to remove the low quality. Often the recommendations mentioned earlier are a rough guideline, but the specific experiment needs to inform the exact thresholds chosen. We will use the following thresholds:
+
+* nUMI >= 500
+* nGene >= 250
+* log10GenesPerUMI > 0.8
+* mitoRatio < 0.2
+
+
+```{r}
+# Filter out low quality cells using selected thresholds - these will change with experiment
+filtered_seurat <- subset(x = merged_seurat, 
+                         subset= (nUMI >= 500) & 
+                           (nGene >= 250) & 
+                           (log10GenesPerUMI > 0.80) & 
+                           (mitoRatio < 0.20))
+```
+
+#### Gene-level filtering
+
+Within our data we will have many genes with zero counts. These genes can dramatically reduce the average expression for a cell and so we will remove them from our data. We will start by identifying which genes have a zero count in each cell:
+
+```{r}
+# Extract counts
+counts <- GetAssayData(object = filtered_seurat, slot = "counts")
+
+# Output a logical matrix specifying for each gene on whether or not there are more than zero counts per cell
+nonzero <- counts > 0
+```
+
+Now, we will perform some filtering by prevalence. If a gene is only expressed in a handful of cells, it is not particularly meaningful as it still brings down the averages for all other cells it is not expressed in. For our data we choose to **keep only genes which are expressed in 10 or more cells**. By using this filter, genes which have zero counts in all cells will effectively be removed.
+
+```{r}
+# Sums all TRUE values and returns TRUE if more than 10 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 10
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+```
+
+Finally, take those filtered counts and create a new Seurat object for downstream analysis.
+
+```{r}
+# Reassign to filtered Seurat object
+filtered_seurat <- CreateSeuratObject(filtered_counts, meta.data = filtered_seurat@meta.data)
+
+# Save filtered subset to new metadata
+metadata_clean <- filtered_seurat@meta.data
+
+# Remove old data
+rm(counts, filtered_counts, merged_seurat, metrics, nonzero, keep_genes)
+```
+
+
+## Re-assess QC Metrics
+
+Perform after filtering.
+
+### Cell counts
+
+```{r}
+# Visualize the number of cell counts per cell
+metadata_clean %>% 
+  ggplot(aes(x=sample, fill=sample), size = 10) + 
+  geom_bar(width = 0.20) + 
+  ggtitle("NCells") +
+  theme_bw() +
+  theme(axis.text.x = element_text(size=rel(3), angle = 45, hjust = 1),
+        axis.text.y = element_text(size=rel(4)),
+        axis.title = element_text(size=rel(4)),
+        plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+        legend.text = element_text(size=20),
+        legend.title = element_text(size=20))
+
+# ggplot(aes(x=sampleName, fill= group)) - group refers to sample and sampleName refers to data for the sample
+```
+
+The Ctrl and Stim group have similar cell counts before and after filtering. But after filtering, the cell counts have come down to about 15,000 from being over 15,000. They are still not in the range of 12,000-13,000.
+
+
+### Genes detected per cell
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram
+metadata_clean %>% 
+        ggplot(aes(color=sample, x=nGene, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        geom_vline(xintercept = 300) +
+        theme_classic() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+
+Box plot instead of histogram:
+
+```{r}
+# Visualize the distribution of genes detected per cell via boxplot
+metadata_clean %>% 
+        ggplot(aes(x=sample, y=log10(nGene), fill=sample)) + 
+        geom_boxplot() + 
+        ggtitle("NCells vs NGenes") +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=rel(3)),
+              axis.text.y = element_text(size=rel(4)),
+              axis.title = element_text(size=rel(4)),
+              plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+All cells with less than 250 genes have been removed.
+
+
+### UMI counts
+
+```{r}
+# Visualize the number UMIs/transcripts per cell
+metadata_clean %>% 
+        ggplot(aes(color=sample, x=nUMI, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        ylab("log10 cell density") +
+        geom_vline(xintercept = 500) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.text = element_text(size=20),
+              legend.title = element_text(size=20))
+```
+
+
+All cells with less than 500 UMI are removed.
+
+
+
+### UMIs vs. genes detected
+
+```{r}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metadata_clean %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point() + 
+	  scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 250) +
+  	facet_wrap(~sample)+
+    theme(axis.text.x = element_text(size=rel(3)),
+          axis.text.y = element_text(size=rel(4)),
+          axis.title = element_text(size=rel(4)),
+          plot.title = element_text(size=rel(4), hjust = 0.5, face = "bold"),
+          legend.text = element_text(size=20),
+          legend.title = element_text(size=20))
+```
+
+
+I do not observe any cells with a high number of UMIs but only a few number of genes.
+
+
+### Mitochondrial counts ratio
+
+```{r}
+# Visualize the distribution of mitochondrial gene expression detected per cell
+metadata_clean %>% 
+        ggplot(aes(color=sample, x=mitoRatio, fill=sample)) + 
+        geom_density(alpha = 0.2) + 
+        scale_x_log10() + 
+        geom_vline(xintercept = 0.2) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.title = element_text(size=25),
+              legend.text = element_text(size = 25))
+```
+
+Cells with more than 0.2 mitochondrial counts ratio have been removed.
+
+### Complexity
+
+```{r}
+metadata_clean %>%
+        ggplot(aes(x=log10GenesPerUMI, color = sample, fill=sample)) +
+        geom_density(alpha = 0.2) +
+        geom_vline(xintercept = 0.8) +
+        theme_bw() +
+        theme(axis.text.x = element_text(size=30),
+              axis.text.y = element_text(size=40),
+              axis.title = element_text(size=40),
+              plot.title = element_text(size=40, hjust = 0.5, face = "bold"),
+              legend.title = element_text(size=25),
+              legend.text = element_text(size = 25))
+```
+
+
+Cells with less than 0.8 `log10GenesPerUMI` have been removed.
+
+
+
+## Saving Filtered Cells
+
+Based on these QC metrics we would identify any failed samples and move forward with our filtered cells. Often we iterate through the QC metrics using different filtering criteria; it is not necessarily a linear process. When satisfied with the filtering criteria, we would save our filtered cell object for clustering and marker identification.
+
+```{r}
+# Create .RData object to load at any time
+save(filtered_seurat, file="data/seurat_filtered_after_QC.RData")
+```
+
+
+## Session Information
+```{r session-info}
+sessionInfo()
+```
