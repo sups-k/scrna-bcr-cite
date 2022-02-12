@@ -11,7 +11,7 @@ Be present in the home directory.
 > /n/app/python/3.8.12/bin/python3
 
 `which virtualenv`
-/n/app/python/3.8.12/bin/virtualenv
+> /n/app/python/3.8.12/bin/virtualenv
 
 `mkdir immcantation-python3.8.12/ && cd immcantation-python3.8.12/`
 
@@ -31,10 +31,17 @@ Be present in `~/immcantation-python3.8.12/`
 Within the virtual environment, run:
 
 `pip3 install setuptools`
+
 `pip3 install scipy`
+
 `pip3 install pandas`
+
 `pip3 install biopython`
+
 `pip3 install presto`
+
 `pip3 install airr`
+
 `pip3 install changeo --user`
+
 
