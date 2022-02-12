@@ -172,7 +172,7 @@ Group heavy and light chain files together:
 
 `cd ../../../`
 
-**Ensure that Python environment is activated before running these lines to setup the database for Ig chains:
+**Ensure that Python environment is activated before running these lines to setup the database for Ig chains:**
 
 Make directories to store the output databases (while in `imm-env/`):
 
@@ -188,7 +188,7 @@ For V genes:
 
 `bin/clean_imgtdb.py imgt/human/vdj/imgt_human_IGV.fasta db_output/imgt_human_ig_v/imgt_human_IGV.fasta`
 
-**This step is important – it removes gaps from IMGT reference sequences to build the IgBLAST database.
+**This step is important – it removes gaps from IMGT reference sequences to build the IgBLAST database.**
 
 `bin/ncbi-igblast-1.17.1/bin/makeblastdb -parse_seqids -dbtype nucl -in db_output/imgt_human_ig_v/imgt_human_IGV.fasta`
 
@@ -204,7 +204,7 @@ For J genes:
 
 `bin/ncbi-igblast-1.17.1/bin/makeblastdb -parse_seqids -dbtype nucl -in db_output/imgt_human_ig_j/imgt_human_IGJ.fasta`
 
-**Still within imm-env/:
+**Still within imm-env/:**
 
 `mv db_output/ bin/ncbi-igblast-1.17.1/bin/`
 
@@ -215,31 +215,51 @@ For J genes:
 Also move all folders to bin so that the directory structure looks like (showing all folders and select files):
 
 bin
+
 ├── blastdbcmd
+
 ├── database
+
 │   ├── imgt_human_ig_d
+
 │   │   ├── imgt_human_IGD.fasta
+
 │   │   ├── imgt_human_IGD.fasta.ndb
+
 │   │   ├── imgt_human_IGD.fasta.nhr
+
 │   │   ├── imgt_human_IGD.fasta.nin
+
 │   │   ├── imgt_human_IGD.fasta.nog
+
 │   │   ├── imgt_human_IGD.fasta.nos
+
 │   │   ├── imgt_human_IGD.fasta.not
+
 │   │   ├── imgt_human_IGD.fasta.nsq
+
 │   │   ├── imgt_human_IGD.fasta.ntf
+
 │   │   └── imgt_human_IGD.fasta.nto
+
 │   ├── imgt_human_ig_j
+
 │   └── imgt_human_ig_v
+
 │
 ├── igblastn
+
 ├── igblastp
+
 ├── internal_data
+
 │
 ├── makeblastdb
+
 └── optional_file
 
 
-**Before running IgBLAST, export IGDATA to path to bin folder in bashrc.
+**Before running IgBLAST, export IGDATA to path to bin folder in bashrc.**
 
 `nano ~/.bashrc`
 
