@@ -45,7 +45,7 @@ Within the virtual environment, run:
 `pip3 install changeo --user`
 
 
-## To install other required non-python modules (**Be present in `~/immcantation-python3.8.12/imm-env/bin`):
+## To install other required non-python modules (Be present in `~/immcantation-python3.8.12/imm-env/bin`):
 
 ### For MUSCLE 3.8.31
 
