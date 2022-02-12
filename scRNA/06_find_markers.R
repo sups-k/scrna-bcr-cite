@@ -73,9 +73,9 @@ get_conserved <- function(cluster){
     cbind(cluster_id = cluster, .)
 }
 
-# Iterate function across desired clusters - in this case, 28 clusters at 0.8 resolution
-Idents(object = seurat_integrated) <- "integrated_snn_res.0.8"
-conserved_markers <- map_dfr(0:22, get_conserved)
+# Iterate function across desired clusters - in this case, 21 clusters at 0.4 resolution
+Idents(object = seurat_integrated) <- "integrated_snn_res.0.4"
+conserved_markers <- map_dfr(0:20, get_conserved)
 ### In some cases you will have clusters that do not have enough cells for a
 ### particular group - and your function will fail. For these clusters you will
 ### need to use FindAllMarkers().
@@ -89,7 +89,7 @@ top10 <- conserved_markers %>%
 # Save the top 10 markers per cluster
 write.csv(conserved_markers, file = "results/top10_markers_per_cluster_res0.05.csv", row.names = FALSE)
 
-
+# Differential expression of genes - comparing conditions for each cluster
 for (i in seq(from = 0, to = 20, by = 1)) {
   
   # Genes different between conditions
