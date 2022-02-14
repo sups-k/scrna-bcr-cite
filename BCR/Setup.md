@@ -1,4 +1,4 @@
-# BCR Lineage Tracing Using Immcantation - Setting Up Tools
+# BCR Lineage Tracing Using Immcantation (v.4.3.0) - Setting Up Tools
 
 ## Setting up virtual python3 environment on O2
 
