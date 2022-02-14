@@ -1,4 +1,4 @@
-# BCR Lineage Tracing Using Immcantation
+# BCR Lineage Tracing Using Immcantation (v.4.3.0)
 
 Before you begin, follow setup instructions in `Setup.md`. Once complete, follow the steps outlined below.
 
