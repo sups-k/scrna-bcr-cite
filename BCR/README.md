@@ -175,5 +175,5 @@ Run the above block for all samples. For example, for sample 1, `d` is `Hashtag1
 ## Step 7: Run `02_VDJ_mutation_quant.R`
 This step identifies mutational load using SHazaM. This results in the file `VDJseq_mutation_quant.tab` present in `~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/create_germlines/`.
 
-You can now use the `VDJseq_mutation_quant.tab` file to perform analysis of clonal frequencies (`clone_freq.R` in the `code` folder of this git) or lineage tracing. You can also try running the `plot_mutational_freq.R` file from the `code` folder, which I got from https://github.com/angelettilab/scMouseBcellFlu
+You can now use the `VDJseq_mutation_quant.tab` file to perform analysis of clonal frequencies (`clone_freq.R` in the `code` folder of this git) or lineage tracing. You can also try running the `plot_mutational_freq.R` file from the `code` folder, which I got from https://github.com/angelettilab/scMouseBcellFlu. From the same website, I got the `lineage_tracing.R` code to build lineage trees using Alakazam (it works but need to figure out how to make the image better).
 I'm using `plot_isotypes_bcr.R` to find the isotype frequencies in each cluster.
