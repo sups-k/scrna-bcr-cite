@@ -14,3 +14,5 @@ Output file: `sauron_integrated_Jan23.rds`
 
 5. Perform PCA again based on the number of significant PCs. Check at what resolution over-clustering happens.
 Output file: `sauron_integrated_Jan23_pc43.rds`
+
+6. Once you identify any contamination, use `remove_cells.R` to specify which clusters you want to remove from the raw Seurat object, then re-run the entire analysis. Here, I've removed clusters 19 (T/NK contamination) and 20 (monocyte/macrophage contamination).
