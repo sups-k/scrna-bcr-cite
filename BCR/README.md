@@ -111,6 +111,8 @@ mv *light*.tab light/
 
 Run `01_VDJ_genotype_and_threshold-bimodal.R` which results in a `predicted_thresholds.csv` file if the distribution of thresholds is bimodal. If it is bimodal, **do not** run SCOPer. If the distribution is unimodal, run `01_VDJ_genotype_and_threshold-unimodal.R`.
 
+>Rather than run the code for each sample, on 10 March 2022, I ran the code on `seqdb` without splitting it by sample. This means I did not run the `for` loop nor split the `seqdb` into `seqdb_patient`. As a result, I got a single threshold value.
+
 ## Step 6: Split BCR sequences by clone
 
 ### Did not run SCOPer
