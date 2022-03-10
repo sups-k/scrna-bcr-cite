@@ -14,6 +14,7 @@ merged_seurat <- subset(merged_seurat, cells=colnames(merged_seurat) [ Matrix::c
 
 cat("The total dimensions of your dataset is: ",dim(merged_seurat),"\n")
 # The total dimensions of the dataset is: 26122 x 75789
+# Now 26010 x 75683 after removing T/NK & macrophages
 
 # Calculate data diversity indices of gene expression
 indexes <- t(apply(merged_seurat@assays[["RNA"]]@counts,2,function(x) {
