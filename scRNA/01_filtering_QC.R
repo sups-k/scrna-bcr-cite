@@ -332,7 +332,7 @@ metadata_clean %>%
         legend.text = element_text(size=20),
         legend.title = element_text(size=20))
 
-## As a bar plot
+## As a box plot
 metadata_clean %>%
   ggplot(aes(x=sample, y=log10(nGene), fill=sample)) +
   geom_boxplot() +
@@ -371,7 +371,7 @@ metadata_clean %>%
   ggplot(aes(color=sample, x=mitoRatio, fill=sample)) +
   geom_density(alpha = 0.2) +
   scale_x_log10() +
-  geom_vline(xintercept = 0.2) +
+  geom_vline(xintercept = 0.25) +
   theme_bw() +
   theme(axis.text.x = element_text(size=30),
         axis.text.y = element_text(size=40),
