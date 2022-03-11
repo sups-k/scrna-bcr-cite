@@ -80,6 +80,7 @@ for(i in patient_ID){
   
   # Convert genotype table to vector of nucleotide sequences
   gtseq_pat <- genotypeFasta(genotype = gt_pat, germline_db = igv, novel=nv)
+  writeFasta(gtseq_pat, paste0(genotype_dir, "genotype/IGHV_genotype_", i, ".fasta"))
 
   # Correct allele calls based on the personalized genotype
   seqdb_patient <- reassignAlleles(data = seqdb_patient,
