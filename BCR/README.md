@@ -158,7 +158,7 @@ CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/function
 If the distribution of thresholds is not bimodal, use single cell mode in SCOPer (`01_VDJ_genotype_and_threshold-unimodal.R`).
 
 First, run `DefineClones.py` for each sample but in the `dist` argument, enter the threshold value obtained after running SCOPer. Use the same threshold for all the samples.
-Second, skip the `light_cluster.py` function above.
+Second, skip the `light_cluster.py` function above since SCOPer already took light chains into consideration when identifying the threshold values. 
 Third, directly reconstruct all chains V and J germline genes using the output of SCOPer:
 ```
 CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/Hashtag8_IGV-genotyped.tab \
