@@ -139,7 +139,7 @@ light_cluster.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/functional
 -o 1_10X_clone-pass.tab \
 --format changeo
 ```
-Reconstruct heavy chains V and J germline genes. Run this block for each sample. For example, for sample 8, the `d` is `8_10X_clone-pass.tab` (the output from `light_cluster.py`), the `outname` is `8_ph_genotyped` and the `log` is `8_CreateGermlines.log`.
+Reconstruct heavy chains V and J germline genes. Run this block for each sample. For example, for sample 8, the `d` is `8_10X_clone-pass.tab` (the output from `light_cluster.py`), the V gene for `r` (reference sequence) is the FASTA output of `01_VDJ_genotype_and_threshold-bimodal.R`, the `outname` is `8_ph_genotyped` and the `log` is `8_CreateGermlines.log`.
 ```
 CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/1_10X_clone-pass.tab \
 -g dmask \
@@ -172,7 +172,7 @@ CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/function
 --outname 8_ph_genotyped \
 --log ~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/8_CreateGermlines.log
 ```
-Run the above block for all samples. For example, for sample 1, `d` is `Hashtag1_IGV-genotyped.tab` (output of `01_VDJ_genotype_and_threshold-unimodal.R`), `outname` is `1_ph_genotyped`, and `log` is `1_CreateGermlines.log`.
+Run the above block for all samples. For example, for sample 1, `d` is `Hashtag1_IGV-genotyped.tab` (output of `01_VDJ_genotype_and_threshold-unimodal.R`), V gene for `r` is the FASTA output of `01_VDJ_genotype_and_threshold-unimodal.R`, `outname` is `1_ph_genotyped`, and `log` is `1_CreateGermlines.log`.
 
 ## Step 7: Run `02_VDJ_mutation_quant.R`
 This step identifies mutational load using SHazaM. This results in the file `VDJseq_mutation_quant.tab` present in `~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/create_germlines/`.
