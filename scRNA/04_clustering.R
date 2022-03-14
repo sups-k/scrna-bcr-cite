@@ -52,5 +52,5 @@ seurat_integrated <- RunUMAP(object = seurat_integrated, dims = 1:pcs, reduction
 saveRDS(seurat_integrated, "results/output_rds/sauron_integrated_Jan23_pc43.rds")
 
 # Check for over-clustering
-clustree(seurat_integrated, prefix = "integrated_snn.res.")
+clustree(seurat_integrated, prefix = "integrated_snn_res.")
 # Based on results, identify which resolution to use for clustering.
