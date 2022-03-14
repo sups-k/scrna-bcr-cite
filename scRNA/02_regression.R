@@ -18,9 +18,9 @@ DATA <- readRDS(file = "results/output_rds/sauron_filtered.rds")
 
 # Split Seurat object into 8 objects - for each sample
 cat("Splitting Seurat object into 8 objects for each sample ...\n")
-split_seurat <- SplitObject(filtered_seurat_new, split.by = "patient_ID")
-rm(filtered_seurat_new)
-gc()
+split_seurat <- SplitObject(DATA, split.by = "patient_ID")
+rm(DATA)
+invisible(gc())
 
 # Perform SCTransform which performs NormalizeData(), FindVariableFeatures(), ScaleData() together - uses MNN
 cat("Running SCTransform() to regress mitochondrial ratio. May take a while ...\n")
