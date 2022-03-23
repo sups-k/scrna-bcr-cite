@@ -121,7 +121,7 @@ cbmc.small <- subset(seurat_integrated, downsample = 300)
 
 # Find protein markers for all clusters, and draw a heatmap
 adt.markers <- FindAllMarkers(cbmc.small, assay = "ADT", only.pos = TRUE)
-adt.markers <- adt.markers[c(1,2,4,7,9,10,12,15,16,19,20,21),]
+adt.markers <- adt.markers[c(1,2,3,6,10,12,14,16,17,20,21,22),]
 DoHeatmap(cbmc.small, features = unique(adt.markers$gene), assay = "ADT", angle = 90) + NoLegend()
 
 # Since we only have 4 markers, instead of doing PCA, we'll just use a standard euclidean
