@@ -26,7 +26,7 @@ gc()
 db <- read.delim("~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/create_germlines/VDJseq_mutation_quant.tab", stringsAsFactors=F)
 
 # Subset the BCR-seq data to include relevant information only
-small_db <- db %>% dplyr::select(SEQUENCE_ID, LOCUS, V_CALL, D_CALL, J_CALL, C_CALL, SEQUENCE_IMGT, JUNCTION, JUNCTION_LENGTH, GERMLINE_IMGT, CLONE, MU_FREQ_TOT, CELL)
+small_db <- db %>% dplyr::select(SEQUENCE_ID, LOCUS, V_CALL_GENOTYPED, D_CALL, J_CALL, C_CALL, SEQUENCE_IMGT, JUNCTION, JUNCTION_LENGTH, GERMLINE_IMGT, CLONE, MU_FREQ_TOT, CELL)
 # Rename 'CELL' column to match 'cells' column in `meta_clusters` for merging
 small_db <- small_db %>% dplyr::rename(cells = CELL)
 
