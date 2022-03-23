@@ -71,7 +71,10 @@ seurat_integrated <- RenameIdents(object = seurat_integrated,
                                   "27" = "T3b")
 
 # Plot the UMAP of the labelled object
-DimPlot(seurat_integrated, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, split.by = "sample")
+pal <- c("#A6CEE3","#1F78B4","#B2DF8A","#33A02C","#FB9A99","#E31A1C","#FDBF6F","#FF7F00","#CAB2D6","#6A3D9A","#A6761D","#B15928","black")
+levels(seurat_subset_labeled) <- c("T1/T2", "T3a", "T3b", "Naive", "Follicular", "MZP", "Activated Naive", "CD11c+ Double Negative", "CD45RB+ Double Negative", "Class Switched", "Plasma Cells", "CD10+ Switched Memory", "4")
+DimPlot(object = seurat_subset_labeled, reduction = "umap", label = FALSE, cols = pal, split.by = "sample")
+# DimPlot(seurat_integrated, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, split.by = "sample")
 
 # Save final R object
 write_rds(seurat_integrated, file = "results/output_rds/seurat_labelled.rds")
@@ -114,7 +117,26 @@ cluster_13_DEG <- cluster_13_DEG %>% dplyr::filter(avg_log2FC >= 1 & p_val_adj <
 cluster_13_DEG <- cluster_13_DEG %>% dplyr::filter(pct.1 > pct.2)
 
 
+# Number of cells
+n_cells <- FetchData(seurat_subset_labeled, 
+                     vars = c("ident", "sample")) %>%
+  dplyr::count(ident, sample) %>%
+  tidyr::spread(ident, n)
+rownames(n_cells) <- n_cells$sample
+barplot(t(as.matrix(n_cells[,2:14])),
+        legend.text = c("T1/T2", "T3a", "T3b", "Naive", "Follicular", "MZP", "Activated Naive", "CD11c+ Double Negative", "CD45RB+ Double Negative", "Class Switched", "Plasma Cells", "CD10+ Switched Memory", "Cluster 4"),
+        args.legend = list(x = "topright", inset=c(-0.2,-0.1)),
+        main = "Proportion of Cells in Clusters",
+        xlab = "Condition",
+        ylab = "Number of Cells",
+        col = c("#A6CEE3","#1F78B4","#B2DF8A","#33A02C","#FB9A99","#E31A1C","#FDBF6F","#FF7F00","#CAB2D6","#6A3D9A","#A6761D","#B15928","black")
+)
 
+
+# Add to BCR-seq file
+meta <- FetchData(seurat_subset_labeled, vars = c("ident", "sample", "patient_ID"))
+meta$cell <- rownames(meta)
+db <- read.delim("~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/create_germlines/VDJseq_mutation_quant.tab", stringsAsFactors=F)
 
 
 
