@@ -27,35 +27,35 @@ ighv <- readIgFasta("~/immcantation-python3.8.12/imm-env/imgt/human/vdj/imgt_hum
 seqdb <- NULL
 
 # For healthy 1
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/1_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/1_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[1]
 seqdb <- rbind(seqdb, tmp)
 # For patient 2
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/2_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/2_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[2]
 seqdb <- rbind(seqdb, tmp)
 # For healthy 3
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/3_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/3_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[3]
 seqdb <- rbind(seqdb, tmp)
 # For patient 4
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/4_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/4_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[4]
 seqdb <- rbind(seqdb, tmp)
 # For healthy 5
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/5_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/5_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[5]
 seqdb <- rbind(seqdb, tmp)
 # For healthy 6
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/6_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/6_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[6]
 seqdb <- rbind(seqdb, tmp)
 # For patient 7
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/7_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/7_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[7]
 seqdb <- rbind(seqdb, tmp)
 # For patient 8
-tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/heavy/8_heavy_parse-select.tab")
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/heavy/8_heavy_parse-select.tab")
 tmp$PATIENT_ID <- patient_ID[8]
 seqdb <- rbind(seqdb, tmp)
 
@@ -69,7 +69,7 @@ gc()
 # contain polymorphisms (rather than somatic hypermutations) will exhibit a high
 # apparent mutation frequency even when the sequence-wide mutation count is low.
 
-genotype_dir <- "~/immcantation-python3.8.12/imm-env/makedb_output/functional/"
+genotype_dir <- "~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/"
 
 
 for(i in patient_ID){
@@ -153,6 +153,37 @@ for(i in patient_ID){
 ####### CLONAL DIVERSITY ANALYSIS USING CDR3 #######
 ####################################################
 
+# Import ChangeO-formatted sequence database files (heavy and light chains)
+seqdb <- NULL
+
+# For healthy 1
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag1.tab")
+seqdb <- rbind(seqdb, tmp)
+# For patient 2
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag2.tab")
+seqdb <- rbind(seqdb, tmp)
+# For healthy 3
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag3.tab")
+seqdb <- rbind(seqdb, tmp)
+# For patient 4
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag4.tab")
+seqdb <- rbind(seqdb, tmp)
+# For healthy 5
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag5.tab")
+seqdb <- rbind(seqdb, tmp)
+# For healthy 6
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag6.tab")
+seqdb <- rbind(seqdb, tmp)
+# For patient 7
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag7.tab")
+seqdb <- rbind(seqdb, tmp)
+# For patient 8
+tmp <- readChangeoDb("~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/genotype/IGHV-genotyped_Hashtag8.tab")
+seqdb <- rbind(seqdb, tmp)
+
+rm(tmp)
+gc()
+
 # It practice, we first split sequences into groups that share the same V and J
 # gene assignments, and that have the same junction (or, equivalently CDR3)
 # length. This is based on the assumption that members of a clone will
@@ -175,7 +206,7 @@ for(i in patient_ID){
   # Calculate distances to nearest neighbors
   dist_ham <- distToNearest(db = seqdb_patient,
                            sequenceColumn = "JUNCTION",
-                           vCallColumn="V_CALL",
+                           vCallColumn = "v_call_genotyped",
                            jCallColumn = "J_CALL",
                            model="ham",
                            normalize="len",
@@ -193,7 +224,7 @@ for(i in patient_ID){
 }
 
 # Save predicted thresholds
-write.csv(predicted_thresholds, file = "~/immcantation-python3.8.12/imm-env/makedb_output/functional/predicted_thresholds.csv", quote = FALSE, row.names = FALSE)
+write.csv(predicted_thresholds, file = "~/immcantation-python3.8.12/imm-env/makedb_output/functional/filtered_from_Seurat/predicted_thresholds.csv", quote = FALSE, row.names = FALSE)
 
 
 # ### USING SCOPER ####
