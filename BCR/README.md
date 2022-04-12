@@ -165,7 +165,7 @@ CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/function
 -g dmask \
 --cloned \
 -r ~/immcantation-python3.8.12/imm-env/imgt/human/vdj/imgt_human_IGHD.fasta \
-~/immcantation-python3.8.12/imm-env/imgt/human/vdj/imgt_human_IGJ.fasta \
+~/immcantation-python3.8.12/imm-env/imgt/human/vdj/imgt_human_IGHJ.fasta \
 ~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/fasta/IGV_genotype_Hashtag8.fasta \
 --vf V_CALL_GENOTYPED \
 --format changeo \
@@ -173,6 +173,8 @@ CreateGermlines.py -d ~/immcantation-python3.8.12/imm-env/makedb_output/function
 --log ~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/8_CreateGermlines.log
 ```
 Run the above block for all samples. For example, for sample 1, `d` is `Hashtag1_IGV-genotyped.tab` (output of `01_VDJ_genotype_and_threshold-unimodal.R`), V gene for `r` is the FASTA output of `01_VDJ_genotype_and_threshold-unimodal.R`, `outname` is `1_ph_genotyped`, and `log` is `1_CreateGermlines.log`.
+
+If there was a novel allele found, use `IGV_genotype_Hashtag8.fasta`. If not found, use `imgt_human_IGHV.fasta`.
 
 ## Step 7: Run `02_VDJ_mutation_quant.R`
 This step identifies mutational load using SHazaM. This results in the file `VDJseq_mutation_quant.tab` present in `~/immcantation-python3.8.12/imm-env/makedb_output/functional/genotype/create_germlines/`.
