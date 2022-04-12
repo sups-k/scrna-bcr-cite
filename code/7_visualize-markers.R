@@ -71,8 +71,8 @@ seurat_integrated <- RenameIdents(object = seurat_integrated,
                                   "27" = "T3b")
 
 # Plot the UMAP of the labelled object
-pal <- c("#A6CEE3","#1F78B4","#B2DF8A","#33A02C","#FB9A99","#E31A1C","#FDBF6F","#FF7F00","#CAB2D6","#6A3D9A","#A6761D","#B15928","black")
-levels(seurat_subset_labeled) <- c("T1/T2", "T3a", "T3b", "Naive", "Follicular", "MZP", "Activated Naive", "CD11c+ Double Negative", "CD45RB+ Double Negative", "Class Switched", "Plasma Cells", "CD10+ Switched Memory", "4")
+pal <- c("#A6CEE3","#1F78B4","#B2DF8A","#33A02C","#FB9A99","#E31A1C","#FDBF6F","#FF7F00","#CAB2D6","#6A3D9A","#A6761D","#B15928","#F768A1","black")
+levels(seurat_subset_labeled) <- c("T1/T2", "T1 or T2", "T3a", "T3b", "Naive", "Follicular", "MZP", "Activated Naive", "CD11c+ Double Negative", "CD45RB+ Double Negative", "Class Switched", "Plasma Cells", "CD10+ Switched Memory", "4")
 DimPlot(object = seurat_subset_labeled, reduction = "umap", label = FALSE, cols = pal, split.by = "sample")
 # DimPlot(seurat_integrated, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, split.by = "sample")
 
